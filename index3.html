@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Cup Predictor</title>
+
+<style>
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    background: #0f172a;
+    color: white;
+    margin: 0;
+  }
+
+  header {
+    text-align: center;
+    padding: 20px;
+    font-size: 2rem;
+    background: #1e293b;
+  }
+
+  .container {
+    max-width: 1000px;
+    margin: auto;
+    padding: 15px;
+  }
+
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 15px;
+  }
+
+  select {
+    padding: 6px;
+    border-radius: 6px;
+  }
+
+  .match {
+    background: #1e293b;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .teams {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1rem;
+  }
+
+  .teams img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    border-radius: 50%;
+    background: white;
+    padding: 2px;
+  }
+
+  input {
+    width: 40px;
+    padding: 5px;
+    text-align: center;
+    border-radius: 5px;
+    border: none;
+  }
+
+  button {
+    background: #22c55e;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: #16a34a;
+  }
+
+  .leaderboard {
+    background: #1e293b;
+    padding: 10px;
+    border-radius: 10px;
+    margin-top: 20px;
+  }
+</style>
+</head>
+
+<body>
+
+<header>⚽ World Cup Predictor</header>
+
+<div class="container">
+
+  <div class="controls">
+    <select id="roundFilter"></select>
+    <div>Total Points: <strong id="totalPoints">0</strong></div>
+  </div>
+
+  <div id="matches"></div>
+
+  <div class="leaderboard">
+    <h3>🏆 Leaderboard</h3>
+    <ul id="leaderboardList"></ul>
+  </div>
+
+</div>
+
+<script>
+const API_KEY = "2f0856b3228cb6ab45d31c76e5aa8b83"; // 🔑 PUT YOUR KEY HERE
+const API_URL = "https://v3.football.api-sports.io/fixtures?league=1&season=2022";
+
+// simple username system
+let username = localStorage.getItem("username");
+if (!username) {
+  username = prompt("Enter your name:");
+  localStorage.setItem("username", username);
+}
+
+// fetch matches
+async function fetchMatches() {
+  try {
+    const res = await fetch(API_URL, {
+      headers: {
+        "x-apisports-key": API_KEY
+      }
+    });
+
+    const data = await res.json();
+    populateRounds(data.response);
+    displayMatches(data.response);
+
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// populate round filter
+function populateRounds(matches) {
+  const select = document.getElementById("roundFilter");
+
+  const rounds = [...new Set(matches.map(m => m.league.round))];
+
+  select.innerHTML = `<option value="ALL">All Matches</option>`;
+
+  rounds.forEach(r => {
+    select.innerHTML += `<option value="${r}">${r}</option>`;
+  });
+
+  select.onchange = () => displayMatches(matches);
+}
+
+// display matches
+function displayMatches(matches) {
+
+  const filter = document.getElementById("roundFilter").value;
+  const container = document.getElementById("matches");
+  container.innerHTML = "";
+
+  let total = 0;
+
+  matches.forEach(match => {
+
+    if (filter !== "ALL" && match.league.round !== filter) return;
+
+    const id = match.fixture.id;
+
+    const home = match.teams.home;
+    const away = match.teams.away;
+
+    const saved =
+      JSON.parse(localStorage.getItem(username + "_" + id)) ||
+      { home: "", away: "" };
+
+    const points = calculatePoints(id, match.goals.home, match.goals.away);
+    total += points;
+
+    const div = document.createElement("div");
+    div.className = "match";
+
+    div.innerHTML = `
+      <div class="teams">
+        ${home.logo}
+        ${home.name}
+        vs
+        ${away.logo}
+        ${away.name}
+      </div>
+
+      <div>
+        <input type="number" id="h-${id}" value="${saved.home}" min="0">
+        -
+        <input type="number" id="a-${id}" value="${saved.away}" min="0">
+        <button onclick="savePrediction(${id})">Save</button>
+        (${points} pts)
+      </div>
+    `;
+
+    container.appendChild(div);
+  });
+
+  document.getElementById("totalPoints").innerText = total;
+  updateLeaderboard(total);
+}
+
+// save prediction
+function savePrediction(id) {
+  const home = document.getElementById(`h-${id}`).value;
+  const away = document.getElementById(`a-${id}`).value;
+
+  localStorage.setItem(
+    username + "_" + id,
+    JSON.stringify({ home, away })
+  );
+
+  location.reload();
+}
+
+// scoring system
+function calculatePoints(id, actualHome, actualAway) {
+  const saved = JSON.parse(localStorage.getItem(username + "_" + id));
+
+  if (!saved || actualHome === null) return 0;
+
+  const ph = Number(saved.home);
+  const pa = Number(saved.away);
+
+  if (ph === actualHome && pa === actualAway) return 3;
+
+  if (
+    (ph > pa && actualHome > actualAway) ||
+    (ph < pa && actualHome < actualAway) ||
+    (ph === pa && actualHome === actualAway)
+  ) return 1;
+
+  return 0;
+}
+
+// leaderboard
+function updateLeaderboard(points) {
+  let board = JSON.parse(localStorage.getItem("leaderboard")) || {};
+
+  board[username] = points;
+
+  localStorage.setItem("leaderboard", JSON.stringify(board));
+
+  const ul = document.getElementById("leaderboardList");
+  ul.innerHTML = "";
+
+  Object.entries(board)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([name, pts]) => {
+      ul.innerHTML += `<li>${name}: ${pts} pts</li>`;
+    });
+}
+
+// start app
+fetchMatches();
+</script>
+
+</body>
+</html>
